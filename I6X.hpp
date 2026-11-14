@@ -30,25 +30,59 @@ class I6X
  public:
   enum class Protocol : uint8_t
   {
-    IBUS,
-    SBUS,
+    IBUS,  ///< iBus 协议
+           ///< iBus protocol
+    SBUS,  ///< SBUS 协议
+           ///< SBUS protocol
   };
 
+  /// SBUS 帧字节数
+  /// SBUS frame size in bytes
   static constexpr std::size_t SBUS_FRAME_SIZE = 25;
+  /// iBus 帧字节数
+  /// iBus frame size in bytes
   static constexpr std::size_t IBUS_FRAME_SIZE = 32;
+  /// 支持的最大帧字节数
+  /// Maximum supported frame size
   static constexpr std::size_t FRAME_SIZE = IBUS_FRAME_SIZE;
+  /// SBUS 帧通道数
+  /// Number of channels in an SBUS frame
   static constexpr std::size_t SBUS_CHANNEL_COUNT = 16;
+  /// iBus 帧通道数
+  /// Number of channels in an iBus frame
   static constexpr std::size_t IBUS_CHANNEL_COUNT = 14;
+  /// 公共通道数组长度
+  /// Size of the common channel array
   static constexpr std::size_t CHANNEL_COUNT = SBUS_CHANNEL_COUNT;
+  /// SBUS 帧头
+  /// SBUS frame header
   static constexpr uint8_t SBUS_HEADER = 0x0F;
+  /// SBUS 帧尾
+  /// SBUS frame footer
   static constexpr uint8_t SBUS_FOOTER = 0x00;
+  /// iBus 帧长度字节
+  /// iBus frame length byte
   static constexpr uint8_t IBUS_LENGTH = 0x20;
+  /// iBus 命令字节
+  /// iBus command byte
   static constexpr uint8_t IBUS_COMMAND = 0x40;
+  /// iBus 通道最小有效值
+  /// Minimum valid iBus channel value
   static constexpr uint16_t IBUS_CHANNEL_MIN = 1000;
+  /// iBus 通道最大有效值
+  /// Maximum valid iBus channel value
   static constexpr uint16_t IBUS_CHANNEL_MAX = 2000;
+  /// iBus 长度字节兼容别名
+  /// Compatibility alias for the iBus length byte
   static constexpr uint8_t FRAME_LENGTH = IBUS_LENGTH;
+  /// iBus 命令字节兼容别名
+  /// Compatibility alias for the iBus command byte
   static constexpr uint8_t FRAME_COMMAND = IBUS_COMMAND;
+  /// iBus 最小值兼容别名
+  /// Compatibility alias for the iBus minimum
   static constexpr uint16_t CHANNEL_MIN = IBUS_CHANNEL_MIN;
+  /// iBus 最大值兼容别名
+  /// Compatibility alias for the iBus maximum
   static constexpr uint16_t CHANNEL_MAX = IBUS_CHANNEL_MAX;
 
   /**
@@ -57,9 +91,12 @@ class I6X
    */
   struct ChannelCalibration
   {
-    uint16_t minimum;
-    uint16_t center;
-    uint16_t maximum;
+    uint16_t minimum;  ///< 原始通道最小值
+                        ///< Minimum raw channel value
+    uint16_t center;   ///< 原始通道中位值
+                       ///< Center raw channel value
+    uint16_t maximum;  ///< 原始通道最大值
+                       ///< Maximum raw channel value
 
     constexpr ChannelCalibration(uint16_t min_value = 240, uint16_t center_value = 1024,
                                  uint16_t max_value = 1807)
@@ -81,29 +118,45 @@ class I6X
   {
     union
     {
-      uint16_t ch[CHANNEL_COUNT];
-      uint16_t channel[CHANNEL_COUNT];
-      uint16_t channels[CHANNEL_COUNT];
+      uint16_t ch[CHANNEL_COUNT];  ///< 通道短名称
+                                   ///< Short channel alias
+      uint16_t channel[CHANNEL_COUNT];  ///< 单数通道别名
+                                       ///< Singular channel alias
+      uint16_t channels[CHANNEL_COUNT];  ///< 通道值
+                                        ///< Channel values
     };
 
-    uint16_t checksum_calculated = 0;
-    uint16_t checksum_received = 0;
+    uint16_t checksum_calculated = 0;  ///< 计算得到的 iBus 校验和
+                                         ///< Calculated iBus checksum
+    uint16_t checksum_received = 0;  ///< 接收到的 iBus 校验和
+                                       ///< Received iBus checksum
 
     struct
     {
-      uint8_t length = 0;
-      uint8_t command = 0;
-      bool valid = false;
+      uint8_t length = 0;  ///< 帧长度字节
+                           ///< Frame length byte
+      uint8_t command = 0;  ///< 帧命令字节
+                            ///< Frame command byte
+      bool valid = false;  ///< 帧格式和校验有效
+                          ///< Frame format and checksum are valid
     } frame;
 
-    Protocol protocol = Protocol::SBUS;
-    uint8_t channel_count = 0;
-    bool ch17 = false;
-    bool ch18 = false;
-    bool frame_lost = false;
-    bool failsafe = false;
-    bool online = false;
-    float normalized[CHANNEL_COUNT]{};
+    Protocol protocol = Protocol::SBUS;  ///< 本帧使用的协议
+                                         ///< Protocol used for this frame
+    uint8_t channel_count = 0;  ///< 已解析的通道数
+                                 ///< Number of decoded channels
+    bool ch17 = false;  ///< SBUS 数字通道 17
+                        ///< SBUS digital channel 17
+    bool ch18 = false;  ///< SBUS 数字通道 18
+                        ///< SBUS digital channel 18
+    bool frame_lost = false;  ///< 接收机报告丢帧
+                               ///< Receiver reported a lost frame
+    bool failsafe = false;  ///< 接收机报告失控保护
+                            ///< Receiver reported failsafe
+    bool online = false;  ///< 本帧可用于控制
+                          ///< Frame is valid for control
+    float normalized[CHANNEL_COUNT]{};  ///< 校准后的 -1..1 值
+                                        ///< Calibrated values in -1..1
   };
 
   /**
@@ -112,12 +165,18 @@ class I6X
    */
   struct Param
   {
-    const char* topic_name;
-    uint32_t offline_timeout_ms;
-    uint32_t task_stack_depth_uart;
-    LibXR::Thread::Priority thread_priority_uart;
-    Calibration calibration;
-    Protocol protocol;
+    const char* topic_name;  ///< 发布的 Topic 名称
+                              ///< Published Topic name
+    uint32_t offline_timeout_ms;  ///< 离线超时毫秒数
+                                    ///< Offline timeout in milliseconds
+    uint32_t task_stack_depth_uart;  ///< UART 线程栈深
+                                      ///< UART thread stack depth
+    LibXR::Thread::Priority thread_priority_uart;  ///< UART 线程优先级
+                                                     ///< UART thread priority
+    Calibration calibration;  ///< 各通道校准参数
+                              ///< Per-channel calibration
+    Protocol protocol;  ///< 输入协议
+                        ///< Input protocol
   };
 
   /**
