@@ -41,6 +41,25 @@ SBUS 的 `normalized[]` 使用 `Param::calibration` 归一化；iBus 使用 1000
 
 SBUS `normalized[]` uses `Param::calibration`; iBus uses fixed 1000 / 1500 / 2000 minimum, center and maximum values and maps them to -1..1.
 
+### 通道范围与功能 / Channel Ranges and Functions
+
+SBUS 通道是 11 位原始值。`ChannelCalibration` 的默认范围为 `min_value = 240`、`center_value = 1024`、`max_value = 1807`，每个通道都可以通过 `Param::calibration` 单独调整。SBUS 帧本身仍保留原始通道值，归一化只使用这些校准参数。
+
+SBUS channels are 11-bit raw values. `ChannelCalibration` defaults to `min_value = 240`, `center_value = 1024`, and `max_value = 1807`; each channel can be adjusted independently through `Param::calibration`. The SBUS frame keeps the raw channel values, and normalization uses these calibration parameters.
+
+iBus 通道使用固定范围：`IBUS_CHANNEL_MIN = 1000`、`IBUS_CHANNEL_CENTER = 1500`、`IBUS_CHANNEL_MAX = 2000`。解析器拒绝超出该范围的 iBus 通道值，并使用这三个原始命名进行归一化。
+
+iBus channels use a fixed range: `IBUS_CHANNEL_MIN = 1000`, `IBUS_CHANNEL_CENTER = 1500`, and `IBUS_CHANNEL_MAX = 2000`. The decoder rejects iBus channel values outside this range and uses these original names for normalization.
+
+| 协议 / Protocol | 最小值 / Minimum | 中位值 / Center | 最大值 / Maximum | 配置 / Configuration |
+| --- | --- | --- | --- | --- |
+| SBUS | `min_value = 240` | `center_value = 1024` | `max_value = 1807` | 每通道可通过 `Param::calibration` 调整 / Per-channel through `Param::calibration` |
+| iBus | `IBUS_CHANNEL_MIN = 1000` | `IBUS_CHANNEL_CENTER = 1500` | `IBUS_CHANNEL_MAX = 2000` | 固定 / Fixed |
+
+SBUS 和 iBus 的通道功能由遥控器端自行设计和分配。模块只保留协议通道的原始顺序和命名，不预设油门、转向、模式或舵机等功能；应用应根据遥控器配置读取 `Data::channels[]` 或 `Data::normalized[]`。
+
+The functions of SBUS and iBus channels are designed and assigned by the transmitter. The module keeps only the original protocol order and names; it does not assign predefined meanings such as throttle, steering, mode or servo. Applications should read `Data::channels[]` or `Data::normalized[]` according to the transmitter configuration.
+
 ## 3. 构造接口 / Constructor
 
 ```cpp
@@ -63,12 +82,12 @@ The decoder can also be called without hardware:
 
 ```cpp
 I6X::Data data{};
-auto result = I6X::ParseFrame(frame, data, sizeof(frame), I6X::Protocol::SBUS);
+auto result = I6X::ParseFrame(frame, data, I6X::Protocol::SBUS, sizeof(frame));
 ```
 
-省略协议参数时，`ParseFrame` 默认按 SBUS 解析；需要解析 iBus 时显式传入 `I6X::Protocol::IBUS`。
+`ParseFrame` 的协议参数位于第三个位置，省略时默认按 SBUS 解析；需要解析 iBus 时显式传入 `I6X::Protocol::IBUS`。`size` 为零时使用协议默认帧长。
 
-When the protocol argument is omitted, `ParseFrame` defaults to SBUS. Pass `I6X::Protocol::IBUS` explicitly for iBus frames.
+The protocol argument is the third parameter and defaults to SBUS. Pass `I6X::Protocol::IBUS` explicitly for iBus frames. A zero `size` selects the protocol's default frame length.
 
 解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但 `online` 为 `false`；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。`Data::channels[]` 保存解析后的通道值。
 
