@@ -70,8 +70,6 @@ class I6X
 
   using Calibration = std::array<ChannelCalibration, CHANNEL_COUNT>;
 
-  static constexpr Calibration DefaultCalibration() { return Calibration{}; }
-
   /**
    * @brief 两种协议共用的 Topic 数据。
    *        Topic payload shared by both protocols.
@@ -98,7 +96,7 @@ class I6X
       bool valid = false;
     } frame;
 
-    Protocol protocol = Protocol::IBUS;
+    Protocol protocol = Protocol::SBUS;
     uint8_t channel_count = 0;
     bool ch17 = false;
     bool ch18 = false;
@@ -135,7 +133,7 @@ class I6X
                             .task_stack_depth_uart = 2048,
                             .thread_priority_uart = LibXR::Thread::Priority::HIGH,
                             .calibration = Calibration{},
-                            .protocol = Protocol::IBUS})
+                            .protocol = Protocol::SBUS})
       : uart_(uart),
         offline_timeout_ms_(param.offline_timeout_ms),
         calibration_(param.calibration),
@@ -156,8 +154,8 @@ class I6X
   }
 
   /**
-   * @brief 解析一帧；默认按 iBus 兼容旧调用。
-   *        Decode one frame; the default is iBus for compatibility.
+   * @brief 解析一帧；默认按 SBUS 解析。
+   *        Decode one frame; the default protocol is SBUS.
    * @param raw_data 输入帧 / Input frame.
    * @param output_data 解析结果，失败时保持不变 / Decoded result, unchanged
    * on failure.
@@ -167,9 +165,9 @@ class I6X
    */
   static LibXR::ErrorCode ParseFrame(const uint8_t* raw_data, Data& output_data,
                                      std::size_t size = 0,
-                                     Protocol protocol = Protocol::IBUS)
+                                     Protocol protocol = Protocol::SBUS)
   {
-    return ParseFrame(raw_data, output_data, size, protocol, DefaultCalibration());
+    return ParseFrame(raw_data, output_data, size, protocol, Calibration{});
   }
 
   /**

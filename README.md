@@ -46,12 +46,12 @@ I6X(LibXR::UART& uart,
                                .task_stack_depth_uart = 2048,
                                .thread_priority_uart = LibXR::Thread::Priority::HIGH,
                                .calibration = I6X::Calibration{},
-                               .protocol = I6X::Protocol::IBUS});
+                               .protocol = I6X::Protocol::SBUS});
 ```
 
-`uart` 是必选依赖，且只能由一个接收消费者拥有。`param.protocol` 是协议切换参数：`I6X::Protocol::IBUS` 配置 115200 8N1，`I6X::Protocol::SBUS` 配置 100000 8E2。`topic_name` 必须非空且每个实例唯一；超时和线程栈大小必须大于零。
+`uart` 是必选依赖，且只能由一个接收消费者拥有。`param.protocol` 是协议切换参数，默认使用 `I6X::Protocol::SBUS`：SBUS 配置 100000 8E2，`I6X::Protocol::IBUS` 配置 115200 8N1。`topic_name` 必须非空且每个实例唯一；超时和线程栈大小必须大于零。
 
-`uart` is a required dependency and its RX path must have one consumer. `param.protocol` is the protocol selector: `I6X::Protocol::IBUS` configures 115200 8N1 and `I6X::Protocol::SBUS` configures 100000 8E2. `topic_name` must be nonempty and unique per instance; timeout and stack size must be positive.
+`uart` is a required dependency and its RX path must have one consumer. `param.protocol` selects the protocol and defaults to `I6X::Protocol::SBUS`: SBUS configures 100000 8E2, while `I6X::Protocol::IBUS` configures 115200 8N1. `topic_name` must be nonempty and unique per instance; timeout and stack size must be positive.
 
 帧解析也可脱离硬件调用：
 
@@ -61,6 +61,10 @@ The decoder can also be called without hardware:
 I6X::Data data{};
 auto result = I6X::ParseFrame(frame, data, sizeof(frame), I6X::Protocol::SBUS);
 ```
+
+省略协议参数时，`ParseFrame` 默认按 SBUS 解析；需要解析 iBus 时显式传入 `I6X::Protocol::IBUS`。
+
+When the protocol argument is omitted, `ParseFrame` defaults to SBUS. Pass `I6X::Protocol::IBUS` explicitly for iBus frames.
 
 解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但 `online` 为 `false`；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。`Data::ch[]`、`Data::channel[]` 和 `Data::channels[]` 是同一数组的兼容别名。
 
