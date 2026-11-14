@@ -37,6 +37,10 @@ I6 supports iBus only. The 6-channel I6X and 6-channel IA6B support both SBUS an
 
 The module exposes the maximum channel array for the selected protocol. `Data::channel_count` is the number decoded from the protocol frame (16 for SBUS and 14 for iBus); a 6-channel or 10-channel receiver uses the first N channels for its model. Unused array elements remain zero.
 
+SBUS 的 `normalized[]` 使用 `Param::calibration` 归一化；iBus 使用 1000 / 1500 / 2000 的固定最小值、中位值和最大值归一化到 -1..1。
+
+SBUS `normalized[]` uses `Param::calibration`; iBus uses fixed 1000 / 1500 / 2000 minimum, center and maximum values and maps them to -1..1.
+
 ## 3. 构造接口 / Constructor
 
 ```cpp

@@ -7,6 +7,7 @@ depends: []
 === END MANIFEST === */
 // clang-format on
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -54,6 +55,18 @@ class I6X
   /// SBUS 帧尾
   /// SBUS frame footer
   static constexpr uint8_t SBUS_FOOTER = 0x00;
+  /// Some receivers use 0x7E as an alternate SBUS footer / 部分接收机使用 0x7E 作为 SBUS 备用帧尾
+  static constexpr uint8_t SBUS_ALT_FOOTER = 0x7E;
+  /// SBUS status flag for digital channel 17 / SBUS 数字通道 17 状态位
+  static constexpr uint8_t SBUS_STATUS_CH17 = 0x01;
+  /// SBUS status flag for digital channel 18 / SBUS 数字通道 18 状态位
+  static constexpr uint8_t SBUS_STATUS_CH18 = 0x02;
+  /// SBUS status flag for a lost frame / SBUS 丢帧状态位
+  static constexpr uint8_t SBUS_STATUS_FRAME_LOST = 0x04;
+  /// SBUS status flag for failsafe / SBUS 失控保护状态位
+  static constexpr uint8_t SBUS_STATUS_FAILSAFE = 0x08;
+  /// SBUS status byte offset / SBUS 状态字节偏移
+  static constexpr std::size_t SBUS_STATUS_OFFSET = SBUS_FRAME_SIZE - 2;
   /// iBus 帧长度字节
   /// iBus frame length byte
   static constexpr uint8_t IBUS_LENGTH = 0x20;
@@ -66,6 +79,14 @@ class I6X
   /// iBus 通道最大有效值
   /// Maximum valid iBus channel value
   static constexpr uint16_t IBUS_CHANNEL_MAX = 2000;
+  /// iBus checksum byte count / iBus 校验和字节数
+  static constexpr std::size_t IBUS_CHECKSUM_SIZE = 2;
+  /// iBus checksum start offset / iBus 校验和起始偏移
+  static constexpr std::size_t IBUS_CHECKSUM_OFFSET = IBUS_FRAME_SIZE - IBUS_CHECKSUM_SIZE;
+  /// iBus channel data start offset / iBus 通道数据起始偏移
+  static constexpr std::size_t IBUS_CHANNEL_DATA_OFFSET = 2;
+  /// iBus checksum initial value / iBus 校验和初始值
+  static constexpr uint16_t IBUS_CHECKSUM_INITIAL = 0xFFFF;
   /**
    * @brief 单通道归一化量程。
    *        Per-channel range used for -1..1 normalization.
@@ -97,8 +118,8 @@ class I6X
    */
   struct Data
   {
-    uint16_t channels[SBUS_CHANNEL_COUNT];  ///< 通道值
-                                            ///< Channel values
+    uint16_t channels[SBUS_CHANNEL_COUNT]{};  ///< 通道值
+                                              ///< Channel values
 
     uint16_t checksum_calculated = 0;  ///< 计算得到的 iBus 校验和
                                          ///< Calculated iBus checksum
@@ -109,8 +130,8 @@ class I6X
     {
       uint8_t length = 0;  ///< 帧长度字节
                            ///< Frame length byte
-      uint8_t command = 0;  ///< 帧命令字节
-                            ///< Frame command byte
+      uint8_t marker = 0;  ///< 协议标识字节：SBUS 为帧头，iBus 为命令字节
+                           ///< Protocol marker: SBUS header or iBus command
       bool valid = false;  ///< 帧格式和校验有效
                           ///< Frame format and checksum are valid
     } frame;
@@ -172,7 +193,7 @@ class I6X
         calibration_(param.calibration),
         protocol_(param.protocol),
         sem_(0),
-        op_(sem_, 5)
+        op_(sem_, 64)
   {
     ASSERT(param.topic_name != nullptr && param.topic_name[0] != '\0');
     ASSERT(param.offline_timeout_ms > 0 && param.task_stack_depth_uart > 0);
@@ -303,7 +324,7 @@ class I6X
     for (std::size_t channel = 0; channel < count; ++channel)
     {
       const auto& range = calibration[channel];
-    const auto raw = data.channels[channel];
+      const auto raw = data.channels[channel];
       if (raw <= range.minimum)
       {
         data.normalized[channel] = -1.0F;
@@ -321,11 +342,25 @@ class I6X
     }
   }
 
+  static void NormalizeIbus(Data& data)
+  {
+    constexpr float midpoint =
+        (static_cast<float>(IBUS_CHANNEL_MIN) + IBUS_CHANNEL_MAX) * 0.5F;
+    constexpr float half_range =
+        (static_cast<float>(IBUS_CHANNEL_MAX) - IBUS_CHANNEL_MIN) * 0.5F;
+    for (std::size_t channel = 0; channel < IBUS_CHANNEL_COUNT; ++channel)
+    {
+      const float normalized = (static_cast<float>(data.channels[channel]) - midpoint) /
+                               half_range;
+      data.normalized[channel] = std::clamp(normalized, -1.0F, 1.0F);
+    }
+  }
+
   static LibXR::ErrorCode ParseSbusFrame(const uint8_t* raw_data, Data& output_data,
                                          const Calibration& calibration)
   {
     if (raw_data[0] != SBUS_HEADER || (raw_data[SBUS_FRAME_SIZE - 1] != SBUS_FOOTER &&
-                                       raw_data[SBUS_FRAME_SIZE - 1] != 0x7E))
+                                       raw_data[SBUS_FRAME_SIZE - 1] != SBUS_ALT_FOOTER))
     {
       return LibXR::ErrorCode::CHECK_ERR;
     }
@@ -334,7 +369,7 @@ class I6X
     data.protocol = Protocol::SBUS;
     data.channel_count = static_cast<uint8_t>(SBUS_CHANNEL_COUNT);
     data.frame.length = static_cast<uint8_t>(SBUS_FRAME_SIZE);
-    data.frame.command = SBUS_HEADER;
+    data.frame.marker = SBUS_HEADER;
     for (std::size_t channel = 0; channel < SBUS_CHANNEL_COUNT; ++channel)
     {
       const std::size_t bit = channel * 11;
@@ -348,10 +383,10 @@ class I6X
       }
       data.channels[channel] = static_cast<uint16_t>((value >> shift) & 0x07FFU);
     }
-    data.ch17 = (raw_data[23] & 0x01U) != 0;
-    data.ch18 = (raw_data[23] & 0x02U) != 0;
-    data.frame_lost = (raw_data[23] & 0x04U) != 0;
-    data.failsafe = (raw_data[23] & 0x08U) != 0;
+    data.ch17 = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_CH17) != 0;
+    data.ch18 = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_CH18) != 0;
+    data.frame_lost = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_FRAME_LOST) != 0;
+    data.failsafe = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_FAILSAFE) != 0;
     data.online = !data.frame_lost && !data.failsafe;
     data.frame.valid = true;
     if (data.online)
@@ -370,9 +405,10 @@ class I6X
     }
 
     const uint16_t checksum_received =
-        static_cast<uint16_t>(raw_data[30]) | (static_cast<uint16_t>(raw_data[31]) << 8U);
-    uint16_t checksum_calculated = 0xFFFFU;
-    for (std::size_t i = 0; i < IBUS_FRAME_SIZE - 2; ++i)
+        static_cast<uint16_t>(raw_data[IBUS_CHECKSUM_OFFSET]) |
+        (static_cast<uint16_t>(raw_data[IBUS_CHECKSUM_OFFSET + 1]) << 8U);
+    uint16_t checksum_calculated = IBUS_CHECKSUM_INITIAL;
+    for (std::size_t i = 0; i < IBUS_CHECKSUM_OFFSET; ++i)
     {
       checksum_calculated = static_cast<uint16_t>(checksum_calculated - raw_data[i]);
     }
@@ -385,12 +421,12 @@ class I6X
     data.protocol = Protocol::IBUS;
     data.channel_count = static_cast<uint8_t>(IBUS_CHANNEL_COUNT);
     data.frame.length = raw_data[0];
-    data.frame.command = raw_data[1];
+    data.frame.marker = raw_data[1];
     data.checksum_calculated = checksum_calculated;
     data.checksum_received = checksum_received;
     for (std::size_t channel = 0; channel < IBUS_CHANNEL_COUNT; ++channel)
     {
-      const std::size_t byte = 2U + channel * 2U;
+      const std::size_t byte = IBUS_CHANNEL_DATA_OFFSET + channel * 2U;
       const uint16_t value = static_cast<uint16_t>(raw_data[byte]) |
                              (static_cast<uint16_t>(raw_data[byte + 1U]) << 8U);
       if (value < IBUS_CHANNEL_MIN || value > IBUS_CHANNEL_MAX)
@@ -401,6 +437,7 @@ class I6X
     }
     data.frame.valid = true;
     data.online = true;
+    NormalizeIbus(data);
     output_data = data;
     return LibXR::ErrorCode::OK;
   }
@@ -423,6 +460,8 @@ class I6X
 
   static void ThreadI6X(I6X* i6x)
   {
+    constexpr std::size_t RX_BUFFER_SIZE = 64;
+    uint8_t rx_buffer[RX_BUFFER_SIZE]{};
     uint8_t frame[IBUS_FRAME_SIZE]{};
     const std::size_t frame_size = FrameSize(i6x->protocol_);
     std::size_t used = 0;
@@ -431,96 +470,99 @@ class I6X
 
     while (true)
     {
-      uint8_t byte = 0;
-      const auto result = i6x->uart_.Read({&byte, sizeof(byte)}, i6x->op_);
+      const auto result = i6x->uart_.Read({rx_buffer, RX_BUFFER_SIZE}, i6x->op_);
       if (result == LibXR::ErrorCode::OK)
       {
-        if (i6x->protocol_ == Protocol::SBUS)
+        for (std::size_t index = 0; index < RX_BUFFER_SIZE; ++index)
         {
-          if (used == 0)
+          const uint8_t byte = rx_buffer[index];
+          if (i6x->protocol_ == Protocol::SBUS)
           {
-            if (byte == SBUS_HEADER)
+            if (used == 0)
             {
-              frame[used++] = byte;
-            }
-          }
-          else
-          {
-            frame[used++] = byte;
-            if (used == frame_size)
-            {
-              const std::size_t previous_used = used;
-              PublishFrame(i6x, frame, frame_size, used, last_frame_time,
-                           timeout_published);
-              if (used == previous_used)
+              if (byte == SBUS_HEADER)
               {
-                std::size_t next = 1;
-                while (next < frame_size && frame[next] != SBUS_HEADER)
-                {
-                  ++next;
-                }
-                used = frame_size - next;
-                if (used != 0)
-                {
-                  std::memmove(frame, frame + next, used);
-                }
+                frame[used++] = byte;
               }
-            }
-          }
-        }
-        else
-        {
-          if (used == 0)
-          {
-            if (byte == IBUS_LENGTH)
-            {
-              frame[used++] = byte;
-            }
-          }
-          else if (used == 1)
-          {
-            if (byte == IBUS_COMMAND)
-            {
-              frame[used++] = byte;
             }
             else
             {
-              used = byte == IBUS_LENGTH ? 1 : 0;
-              if (used != 0)
+              frame[used++] = byte;
+              if (used == frame_size)
               {
-                frame[0] = byte;
+                const std::size_t previous_used = used;
+                PublishFrame(i6x, frame, frame_size, used, last_frame_time,
+                             timeout_published);
+                if (used == previous_used)
+                {
+                  std::size_t next = 1;
+                  while (next < frame_size && frame[next] != SBUS_HEADER)
+                  {
+                    ++next;
+                  }
+                  used = frame_size - next;
+                  if (used != 0)
+                  {
+                    std::memmove(frame, frame + next, used);
+                  }
+                }
               }
             }
           }
           else
           {
-            frame[used++] = byte;
-            if (used == frame_size)
+            if (used == 0)
             {
-              const std::size_t previous_used = used;
-              PublishFrame(i6x, frame, frame_size, used, last_frame_time,
-                           timeout_published);
-              if (used == previous_used)
+              if (byte == IBUS_LENGTH)
               {
-                std::size_t next = 1;
-                while (next + 1 < frame_size &&
-                       !(frame[next] == IBUS_LENGTH && frame[next + 1] == IBUS_COMMAND))
+                frame[used++] = byte;
+              }
+            }
+            else if (used == 1)
+            {
+              if (byte == IBUS_COMMAND)
+              {
+                frame[used++] = byte;
+              }
+              else
+              {
+                used = byte == IBUS_LENGTH ? 1 : 0;
+                if (used != 0)
                 {
-                  ++next;
+                  frame[0] = byte;
                 }
-                if (next + 1 < frame_size)
+              }
+            }
+            else
+            {
+              frame[used++] = byte;
+              if (used == frame_size)
+              {
+                const std::size_t previous_used = used;
+                PublishFrame(i6x, frame, frame_size, used, last_frame_time,
+                             timeout_published);
+                if (used == previous_used)
                 {
-                  used = frame_size - next;
-                  std::memmove(frame, frame + next, used);
-                }
-                else if (next < frame_size && frame[next] == IBUS_LENGTH)
-                {
-                  frame[0] = IBUS_LENGTH;
-                  used = 1;
-                }
-                else
-                {
-                  used = 0;
+                  std::size_t next = 1;
+                  while (next + 1 < frame_size &&
+                         !(frame[next] == IBUS_LENGTH && frame[next + 1] == IBUS_COMMAND))
+                  {
+                    ++next;
+                  }
+                  if (next + 1 < frame_size)
+                  {
+                    used = frame_size - next;
+                    std::memmove(frame, frame + next, used);
+                  }
+                  else if (next < frame_size && frame[next] == IBUS_LENGTH)
+                  {
+                    frame[0] = IBUS_LENGTH;
+                    used = 1;
+                  }
+                  else
+                  {
+                    used = 0;
+                  }
                 }
               }
             }
