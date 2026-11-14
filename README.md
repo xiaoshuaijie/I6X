@@ -78,12 +78,12 @@ Consumers should use channel values only when `online == true`. One zero-initial
 
 ## 5. 配置示例 / Configuration Example
 
-I6X 是可直接放入 BSP 的本地 Module。下面的实例选择 SBUS；切换到 iBus 时只需把 `protocol` 改为 `I6X::Protocol::IBUS`。
+I6X 是可直接放入 BSP 的Module。下面的实例选择 SBUS；切换到 iBus 时只需把 `protocol` 改为 `I6X::Protocol::IBUS`。
 
-I6X can be included as a local Module in a BSP. This instance selects SBUS; switch to iBus by changing only `protocol` to `I6X::Protocol::IBUS`.
+I6X can be included as a Module in a BSP. This instance selects SBUS; switch to iBus by changing only `protocol` to `I6X::Protocol::IBUS`.
 
 ```cpp
-#include "../Modules/I6X/I6X.hpp"
+#include "I6X.hpp"
 
 static I6X i6x_0(
     uart5,
