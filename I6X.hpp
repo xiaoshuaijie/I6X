@@ -2,7 +2,7 @@
 
 // clang-format off
 /* === MODULE MANIFEST V2 ===
-module_description: I6X 遥控接收机：可配置解析 UART SBUS 或 iBus 帧并发布统一通道状态 / I6X receiver with configurable UART SBUS or iBus decoding and unified channel status
+module_description: I6X 遥控接收机：可配置解析 UART SBUS 或 iBus 帧并发布归一化通道 / I6X receiver with configurable UART SBUS or iBus decoding and normalized channels
 depends: []
 === END MANIFEST === */
 // clang-format on
@@ -52,16 +52,10 @@ public:
   /// Some receivers use 0x7E as an alternate SBUS footer / 部分接收机使用 0x7E
   /// 作为 SBUS 备用帧尾
   static constexpr uint8_t SBUS_ALT_FOOTER = 0x7E;
-  /// SBUS status flag for digital channel 17 / SBUS 数字通道 17 状态位
-  static constexpr uint8_t SBUS_STATUS_CH17 = 0x01;
-  /// SBUS status flag for digital channel 18 / SBUS 数字通道 18 状态位
-  static constexpr uint8_t SBUS_STATUS_CH18 = 0x02;
   /// SBUS status flag for a lost frame / SBUS 丢帧状态位
   static constexpr uint8_t SBUS_STATUS_FRAME_LOST = 0x04;
   /// SBUS status flag for failsafe / SBUS 失控保护状态位
   static constexpr uint8_t SBUS_STATUS_FAILSAFE = 0x08;
-  /// SBUS status byte offset / SBUS 状态字节偏移
-  static constexpr std::size_t SBUS_STATUS_OFFSET = SBUS_FRAME_SIZE - 2;
 
   // iBus constants / iBus 常量
   /// iBus 帧字节数
@@ -115,48 +109,36 @@ public:
   using Calibration = std::array<ChannelCalibration, SBUS_CHANNEL_COUNT>;
 
   /**
-   * @brief 两种协议共用的 Topic 数据。
-   *        Topic payload shared by both protocols.
-   * @note iBus 只填充前 14 个通道；SBUS 填充 16 个通道。未使用通道为零。
-   *       iBus fills the first 14 channels; SBUS fills 16 channels. Unused
-   *       channels are zero.
+   * @brief Topic 发布的归一化通道数据。
+   *        Normalized channel data published by the Topic.
+   * @note 每个元素的范围为 -1..1；离线或 SBUS 失控保护时所有元素为零。
+   *       Every element is in the range -1..1; all elements are zero while
+   *       the receiver is offline or in SBUS failsafe.
    */
   struct Data {
-    uint16_t channels[SBUS_CHANNEL_COUNT]{}; ///< 通道值
-                                             ///< Channel values
-
-    uint16_t checksum_calculated = 0; ///< 计算得到的 iBus 校验和
-                                      ///< Calculated iBus checksum
-    uint16_t checksum_received = 0;   ///< 接收到的 iBus 校验和
-                                      ///< Received iBus checksum
-
-    struct {
-      uint8_t length = 0; ///< 帧长度字节
-                          ///< Frame length byte
-      uint8_t marker = 0; ///< 协议标识字节：SBUS 为帧头，iBus 为命令字节
-                          ///< Protocol marker: SBUS header or iBus command
-      bool valid = false; ///< 帧格式和校验有效
-                          ///< Frame format and checksum are valid
-    } frame;
-
-    Protocol protocol = Protocol::SBUS;     ///< 本帧使用的协议
-                                            ///< Protocol used for this frame
-    uint8_t channel_count = 0;              ///< 已解析的通道数
-                                            ///< Number of decoded channels
-    bool ch17 = false;                      ///< SBUS 数字通道 17
-                                            ///< SBUS digital channel 17
-    bool ch18 = false;                      ///< SBUS 数字通道 18
-                                            ///< SBUS digital channel 18
-    bool frame_lost = false;                ///< 接收机报告丢帧
-                                            ///< Receiver reported a lost frame
-    bool failsafe = false;                  ///< 接收机报告失控保护
-                                            ///< Receiver reported failsafe
-    bool online = false;                    ///< 本帧可用于控制
-                                            ///< Frame is valid for control
-    float normalized[SBUS_CHANNEL_COUNT]{}; ///< 校准后的 -1..1 值
-                                            ///< Calibrated values in -1..1
+    float normalized[SBUS_CHANNEL_COUNT]{}; ///< 校准后的通道值
+                                            ///< Calibrated channel values
   };
 
+ private:
+  /**
+   * @brief 仅供协议解析使用的帧状态，不会发布到 Topic。
+   *        Internal decoder state that is never published to the Topic.
+   */
+  struct DecodedFrame {
+    uint16_t channels[SBUS_CHANNEL_COUNT]{}; ///< 原始通道值
+                                             ///< Raw channel values
+    bool frame_lost = false;                 ///< 接收机报告丢帧
+                                             ///< Receiver reported a lost frame
+    bool failsafe = false;                   ///< 接收机报告失控保护
+                                             ///< Receiver reported failsafe
+    bool online = false;                     ///< 本帧可用于控制
+                                             ///< Frame is valid for control
+    float normalized[SBUS_CHANNEL_COUNT]{};  ///< 内部归一化结果
+                                             ///< Internal normalized values
+  };
+
+ public:
   /**
    * @brief 模块配置；协议字段是唯一的协议切换参数。
    *        Module configuration; protocol is the single protocol selector.
@@ -219,6 +201,10 @@ public:
    * the protocol default.
    * @param calibration SBUS 通道校准表；iBus 忽略此参数 / SBUS channel
    * calibration; ignored for iBus.
+   * @note 成功时仅输出归一化通道；SBUS 丢帧或失控保护输出全零。
+   *       失败时保持原输出。
+   *       Success returns only normalized channels; SBUS lost/failsafe frames
+   *       return all zeros. The output is unchanged on failure.
    */
   static LibXR::ErrorCode
   ParseFrame(const uint8_t *raw_data, Data &output_data,
@@ -234,16 +220,27 @@ public:
     if (size != expected_size) {
       return LibXR::ErrorCode::SIZE_ERR;
     }
+    DecodedFrame decoded{};
+    LibXR::ErrorCode result = LibXR::ErrorCode::ARG_ERR;
     if (protocol == Protocol::SBUS) {
       if (!ValidCalibration(calibration)) {
         return LibXR::ErrorCode::ARG_ERR;
       }
-      return ParseSbusFrame(raw_data, output_data, calibration);
+      result = ParseSbusFrame(raw_data, decoded, calibration);
+    } else if (protocol == Protocol::IBUS) {
+      result = ParseIbusFrame(raw_data, decoded);
     }
-    if (protocol == Protocol::IBUS) {
-      return ParseIbusFrame(raw_data, output_data);
+    if (result != LibXR::ErrorCode::OK) {
+      return result;
     }
-    return LibXR::ErrorCode::ARG_ERR;
+
+    Data normalized{};
+    if (decoded.online) {
+      std::copy(std::begin(decoded.normalized), std::end(decoded.normalized),
+                std::begin(normalized.normalized));
+    }
+    output_data = normalized;
+    return LibXR::ErrorCode::OK;
   }
 
   static constexpr std::size_t FrameSize(Protocol protocol) {
@@ -286,8 +283,9 @@ public:
     return {IBUS_CHANNEL_MIN, IBUS_CHANNEL_CENTER, IBUS_CHANNEL_MAX};
   }
 
+ private:
   template <typename RangeProvider>
-  static void Normalize(Data &data, std::size_t count,
+  static void Normalize(DecodedFrame &data, std::size_t count,
                         RangeProvider range_provider) {
     for (std::size_t channel = 0; channel < count; ++channel) {
       const ChannelCalibration range = range_provider(channel);
@@ -296,7 +294,7 @@ public:
   }
 
   static LibXR::ErrorCode ParseSbusFrame(const uint8_t *raw_data,
-                                         Data &output_data,
+                                         DecodedFrame &output_data,
                                          const Calibration &calibration) {
     if (raw_data[0] != SBUS_HEADER ||
         (raw_data[SBUS_FRAME_SIZE - 1] != SBUS_FOOTER &&
@@ -304,11 +302,7 @@ public:
       return LibXR::ErrorCode::CHECK_ERR;
     }
 
-    Data data{};
-    data.protocol = Protocol::SBUS;
-    data.channel_count = static_cast<uint8_t>(SBUS_CHANNEL_COUNT);
-    data.frame.length = static_cast<uint8_t>(SBUS_FRAME_SIZE);
-    data.frame.marker = SBUS_HEADER;
+    DecodedFrame data{};
     for (std::size_t channel = 0; channel < SBUS_CHANNEL_COUNT; ++channel) {
       const std::size_t bit = channel * 11;
       const std::size_t byte = 1 + bit / 8;
@@ -321,13 +315,11 @@ public:
       data.channels[channel] =
           static_cast<uint16_t>((value >> shift) & 0x07FFU);
     }
-    data.ch17 = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_CH17) != 0;
-    data.ch18 = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_CH18) != 0;
     data.frame_lost =
-        (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_FRAME_LOST) != 0;
-    data.failsafe = (raw_data[SBUS_STATUS_OFFSET] & SBUS_STATUS_FAILSAFE) != 0;
+        (raw_data[SBUS_FRAME_SIZE - 2] & SBUS_STATUS_FRAME_LOST) != 0;
+    data.failsafe =
+        (raw_data[SBUS_FRAME_SIZE - 2] & SBUS_STATUS_FAILSAFE) != 0;
     data.online = !data.frame_lost && !data.failsafe;
-    data.frame.valid = true;
     if (data.online) {
       Normalize(data, SBUS_CHANNEL_COUNT, [&calibration](std::size_t channel) {
         return calibration[channel];
@@ -338,7 +330,7 @@ public:
   }
 
   static LibXR::ErrorCode ParseIbusFrame(const uint8_t *raw_data,
-                                         Data &output_data) {
+                                         DecodedFrame &output_data) {
     if (raw_data[0] != IBUS_LENGTH || raw_data[1] != IBUS_COMMAND) {
       return LibXR::ErrorCode::CHECK_ERR;
     }
@@ -355,13 +347,7 @@ public:
       return LibXR::ErrorCode::CHECK_ERR;
     }
 
-    Data data{};
-    data.protocol = Protocol::IBUS;
-    data.channel_count = static_cast<uint8_t>(IBUS_CHANNEL_COUNT);
-    data.frame.length = raw_data[0];
-    data.frame.marker = raw_data[1];
-    data.checksum_calculated = checksum_calculated;
-    data.checksum_received = checksum_received;
+    DecodedFrame data{};
     for (std::size_t channel = 0; channel < IBUS_CHANNEL_COUNT; ++channel) {
       const std::size_t byte = IBUS_CHANNEL_DATA_OFFSET + channel * 2U;
       const uint16_t value = static_cast<uint16_t>(raw_data[byte]) |
@@ -371,7 +357,6 @@ public:
       }
       data.channels[channel] = value;
     }
-    data.frame.valid = true;
     data.online = true;
     Normalize(data, IBUS_CHANNEL_COUNT,
               [](std::size_t) { return IbusCalibration(); });
@@ -482,7 +467,6 @@ public:
       if (!timeout_published &&
           (now - last_frame_time).ToMillisecond() >= i6x->offline_timeout_ms_) {
         Data offline{};
-        offline.protocol = i6x->protocol_;
         i6x->topic_.Publish(offline);
         timeout_published = true;
         used = 0;

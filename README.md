@@ -2,9 +2,9 @@
 
 ## 1. 模块作用 / Purpose
 
-本模块从专用 UART 接收 Flysky 遥控链路，使用一个配置参数选择 SBUS 或 iBus，校验并发布统一的 `I6X::Data` Topic。SBUS 帧支持 16 个 11 位通道和链路状态；iBus 帧支持 14 个基础通道、校验和与在线状态。
+本模块从专用 UART 接收 Flysky 遥控链路，使用一个配置参数选择 SBUS 或 iBus，校验并发布统一的 `I6X::Data` Topic。Topic 只携带 16 路归一化浮点通道；协议原始值、校验和与链路状态仅在模块内部用于解析和超时处理。
 
-This module receives a Flysky receiver link over a dedicated UART. One configuration parameter selects SBUS or iBus, and validated frames are published as a unified `I6X::Data` Topic. SBUS provides 16 11-bit channels and link flags; iBus provides 14 raw channels, a checksum and link status.
+This module receives a Flysky receiver link over a dedicated UART. One configuration parameter selects SBUS or iBus, and validated frames are published as a unified `I6X::Data` Topic containing only 16 normalized float channels. Raw protocol values, checksums and link status are kept internal for decoding and timeout handling.
 
 ## 2. 协议与设备支持 / Protocol and Device Support
 
@@ -33,19 +33,19 @@ I6 supports iBus only. The 6-channel I6X and 6-channel IA6B support both SBUS an
 | 6 通道 IA6B 接收机 / 6-channel IA6B receiver | 支持 / Yes | 支持 / Yes | 6 |
 | IA10B 接收机 / IA10B receiver | 支持 / Yes | 支持 / Yes | 10 |
 
-模块会为协议帧提供各自协议的最大通道数组；`Data::channel_count` 表示协议帧中解析出的通道数（SBUS 为 16、iBus 为 14）。6 或 10 通道接收机按设备型号使用前 N 路，未使用的数组元素为零。
+模块为协议帧解析各自协议的最大通道数；SBUS 解析 16 路，iBus 解析前 14 路。6 或 10 通道接收机按设备型号使用前 N 路，Topic 中未使用的归一化通道元素为零。
 
-The module exposes the maximum channel array for the selected protocol. `Data::channel_count` is the number decoded from the protocol frame (16 for SBUS and 14 for iBus); a 6-channel or 10-channel receiver uses the first N channels for its model. Unused array elements remain zero.
+The decoder handles the protocol maximum channel count: 16 channels for SBUS and the first 14 channels for iBus. A 6-channel or 10-channel receiver uses the first N channels for its model; unused normalized Topic elements remain zero.
 
-SBUS 的 `normalized[]` 使用 `Param::calibration` 归一化；iBus 使用 1000 / 1500 / 2000 的固定最小值、中位值和最大值归一化到 -1..1。
+Topic 的 `Data::normalized[]` 使用 `-1..1` 表示通道值。SBUS 使用 `Param::calibration` 归一化；iBus 使用 1000 / 1500 / 2000 的固定最小值、中位值和最大值归一化。
 
-SBUS `normalized[]` uses `Param::calibration`; iBus uses fixed 1000 / 1500 / 2000 minimum, center and maximum values and maps them to -1..1.
+Topic `Data::normalized[]` maps channels to `-1..1`. SBUS uses `Param::calibration`; iBus uses fixed 1000 / 1500 / 2000 minimum, center and maximum values.
 
 ### 通道范围与功能 / Channel Ranges and Functions
 
-SBUS 通道是 11 位原始值。`ChannelCalibration` 的默认范围为 `min_value = 240`、`center_value = 1024`、`max_value = 1807`，每个通道都可以通过 `Param::calibration` 单独调整。SBUS 帧本身仍保留原始通道值，归一化只使用这些校准参数。
+SBUS 通道是 11 位原始值。`ChannelCalibration` 的默认范围为 `min_value = 240`、`center_value = 1024`、`max_value = 1807`，每个通道都可以通过 `Param::calibration` 单独调整。原始值只在模块内部使用，Topic 只发布归一化结果。
 
-SBUS channels are 11-bit raw values. `ChannelCalibration` defaults to `min_value = 240`, `center_value = 1024`, and `max_value = 1807`; each channel can be adjusted independently through `Param::calibration`. The SBUS frame keeps the raw channel values, and normalization uses these calibration parameters.
+SBUS channels are 11-bit raw values. `ChannelCalibration` defaults to `min_value = 240`, `center_value = 1024`, and `max_value = 1807`; each channel can be adjusted independently through `Param::calibration`. Raw values stay internal and only normalized results are published.
 
 iBus 通道使用固定范围：`IBUS_CHANNEL_MIN = 1000`、`IBUS_CHANNEL_CENTER = 1500`、`IBUS_CHANNEL_MAX = 2000`。解析器拒绝超出该范围的 iBus 通道值，并使用这三个原始命名进行归一化。
 
@@ -56,9 +56,9 @@ iBus channels use a fixed range: `IBUS_CHANNEL_MIN = 1000`, `IBUS_CHANNEL_CENTER
 | SBUS | `min_value = 240` | `center_value = 1024` | `max_value = 1807` | 每通道可通过 `Param::calibration` 调整 / Per-channel through `Param::calibration` |
 | iBus | `IBUS_CHANNEL_MIN = 1000` | `IBUS_CHANNEL_CENTER = 1500` | `IBUS_CHANNEL_MAX = 2000` | 固定 / Fixed |
 
-SBUS 和 iBus 的通道功能由遥控器端自行设计和分配。模块只保留协议通道的原始顺序和命名，不预设油门、转向、模式或舵机等功能；应用应根据遥控器配置读取 `Data::channels[]` 或 `Data::normalized[]`。
+SBUS 和 iBus 的通道功能由遥控器端自行设计和分配。模块只保留协议通道的原始顺序，不预设油门、转向、模式或舵机等功能；应用应根据遥控器配置读取 `Data::normalized[]`。
 
-The functions of SBUS and iBus channels are designed and assigned by the transmitter. The module keeps only the original protocol order and names; it does not assign predefined meanings such as throttle, steering, mode or servo. Applications should read `Data::channels[]` or `Data::normalized[]` according to the transmitter configuration.
+The functions of SBUS and iBus channels are designed and assigned by the transmitter. The module keeps the original protocol order and does not assign predefined meanings such as throttle, steering, mode or servo. Applications should read `Data::normalized[]` according to the transmitter configuration.
 
 ## 3. 构造接口 / Constructor
 
@@ -89,19 +89,19 @@ auto result = I6X::ParseFrame(frame, data, I6X::Protocol::SBUS, sizeof(frame));
 
 The protocol argument is the third parameter and defaults to SBUS. Pass `I6X::Protocol::IBUS` explicitly for iBus frames. A zero `size` selects the protocol's default frame length.
 
-解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但 `online` 为 `false`；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。`Data::channels[]` 保存解析后的通道值。
+解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但输出的 `Data::normalized[]` 全为零；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。成功解析时输出只包含归一化通道值。
 
-The output is unchanged on a decode failure. An SBUS failsafe or lost-frame packet returns `OK` with `online == false`; an iBus checksum or range failure returns `CHECK_ERR` or `OUT_OF_RANGE`. `Data::channels[]` stores the decoded channel values.
+The output is unchanged on a decode failure. An SBUS failsafe or lost-frame packet returns `OK` with all `Data::normalized[]` elements set to zero; an iBus checksum or range failure returns `CHECK_ERR` or `OUT_OF_RANGE`. Successful decoding exposes only normalized channel values.
 
 ## 4. Topic
 
 | 名称 / Name | 方向 / Direction | 类型 / Type | 用途 / Meaning |
 | --- | --- | --- | --- |
-| `param.topic_name`（默认 / default `i6x`） | 发布 / Publish | `I6X::Data` | 通道值、协议、通道数量、校验和与在线状态 / Channels, protocol, channel count, checksum and link status |
+| `param.topic_name`（默认 / default `i6x`） | 发布 / Publish | `I6X::Data` | `normalized[16]`，范围 `-1..1` / `normalized[16]`, range `-1..1` |
 
-消费者只在 `online == true` 时使用通道值；失联超时每次只发布一次全零离线消息，恢复后继续发布。回调运行在 UART 接收线程中，应及时返回。
+消费者直接读取 `data.normalized[]`；失联超时每次只发布一次全零消息，恢复后继续发布。回调运行在 UART 接收线程中，应及时返回。
 
-Consumers should use channel values only when `online == true`. One zero-initialized offline message is published per timeout period, and publication resumes after a valid frame. Callbacks run in the UART RX thread and should return promptly.
+Consumers read `data.normalized[]` directly. One zero-initialized message is published per timeout period, and publication resumes after a valid frame. Callbacks run in the UART RX thread and should return promptly.
 
 ## 5. 配置示例 / Configuration Example
 
