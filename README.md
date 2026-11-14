@@ -66,9 +66,9 @@ auto result = I6X::ParseFrame(frame, data, sizeof(frame), I6X::Protocol::SBUS);
 
 When the protocol argument is omitted, `ParseFrame` defaults to SBUS. Pass `I6X::Protocol::IBUS` explicitly for iBus frames.
 
-解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但 `online` 为 `false`；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。`Data::ch[]`、`Data::channel[]` 和 `Data::channels[]` 是同一数组的兼容别名。
+解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但 `online` 为 `false`；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。`Data::channels[]` 保存解析后的通道值。
 
-The output is unchanged on a decode failure. An SBUS failsafe or lost-frame packet returns `OK` with `online == false`; an iBus checksum or range failure returns `CHECK_ERR` or `OUT_OF_RANGE`. `Data::ch[]`, `Data::channel[]` and `Data::channels[]` are aliases of the same storage.
+The output is unchanged on a decode failure. An SBUS failsafe or lost-frame packet returns `OK` with `online == false`; an iBus checksum or range failure returns `CHECK_ERR` or `OUT_OF_RANGE`. `Data::channels[]` stores the decoded channel values.
 
 ## 4. Topic
 

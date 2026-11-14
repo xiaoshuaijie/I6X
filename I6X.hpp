@@ -42,18 +42,12 @@ class I6X
   /// iBus 帧字节数
   /// iBus frame size in bytes
   static constexpr std::size_t IBUS_FRAME_SIZE = 32;
-  /// 支持的最大帧字节数
-  /// Maximum supported frame size
-  static constexpr std::size_t FRAME_SIZE = IBUS_FRAME_SIZE;
   /// SBUS 帧通道数
   /// Number of channels in an SBUS frame
   static constexpr std::size_t SBUS_CHANNEL_COUNT = 16;
   /// iBus 帧通道数
   /// Number of channels in an iBus frame
   static constexpr std::size_t IBUS_CHANNEL_COUNT = 14;
-  /// 公共通道数组长度
-  /// Size of the common channel array
-  static constexpr std::size_t CHANNEL_COUNT = SBUS_CHANNEL_COUNT;
   /// SBUS 帧头
   /// SBUS frame header
   static constexpr uint8_t SBUS_HEADER = 0x0F;
@@ -72,19 +66,6 @@ class I6X
   /// iBus 通道最大有效值
   /// Maximum valid iBus channel value
   static constexpr uint16_t IBUS_CHANNEL_MAX = 2000;
-  /// iBus 长度字节兼容别名
-  /// Compatibility alias for the iBus length byte
-  static constexpr uint8_t FRAME_LENGTH = IBUS_LENGTH;
-  /// iBus 命令字节兼容别名
-  /// Compatibility alias for the iBus command byte
-  static constexpr uint8_t FRAME_COMMAND = IBUS_COMMAND;
-  /// iBus 最小值兼容别名
-  /// Compatibility alias for the iBus minimum
-  static constexpr uint16_t CHANNEL_MIN = IBUS_CHANNEL_MIN;
-  /// iBus 最大值兼容别名
-  /// Compatibility alias for the iBus maximum
-  static constexpr uint16_t CHANNEL_MAX = IBUS_CHANNEL_MAX;
-
   /**
    * @brief 单通道归一化量程。
    *        Per-channel range used for -1..1 normalization.
@@ -105,7 +86,7 @@ class I6X
     }
   };
 
-  using Calibration = std::array<ChannelCalibration, CHANNEL_COUNT>;
+  using Calibration = std::array<ChannelCalibration, SBUS_CHANNEL_COUNT>;
 
   /**
    * @brief 两种协议共用的 Topic 数据。
@@ -116,15 +97,8 @@ class I6X
    */
   struct Data
   {
-    union
-    {
-      uint16_t ch[CHANNEL_COUNT];  ///< 通道短名称
-                                   ///< Short channel alias
-      uint16_t channel[CHANNEL_COUNT];  ///< 单数通道别名
-                                       ///< Singular channel alias
-      uint16_t channels[CHANNEL_COUNT];  ///< 通道值
-                                        ///< Channel values
-    };
+    uint16_t channels[SBUS_CHANNEL_COUNT];  ///< 通道值
+                                            ///< Channel values
 
     uint16_t checksum_calculated = 0;  ///< 计算得到的 iBus 校验和
                                          ///< Calculated iBus checksum
@@ -155,8 +129,8 @@ class I6X
                             ///< Receiver reported failsafe
     bool online = false;  ///< 本帧可用于控制
                           ///< Frame is valid for control
-    float normalized[CHANNEL_COUNT]{};  ///< 校准后的 -1..1 值
-                                        ///< Calibrated values in -1..1
+    float normalized[SBUS_CHANNEL_COUNT]{};  ///< 校准后的 -1..1 值
+                                              ///< Calibrated values in -1..1
   };
 
   /**
@@ -329,7 +303,7 @@ class I6X
     for (std::size_t channel = 0; channel < count; ++channel)
     {
       const auto& range = calibration[channel];
-      const auto raw = data.ch[channel];
+    const auto raw = data.channels[channel];
       if (raw <= range.minimum)
       {
         data.normalized[channel] = -1.0F;
@@ -372,7 +346,7 @@ class I6X
       {
         value |= static_cast<uint32_t>(raw_data[byte + 2]) << 16U;
       }
-      data.ch[channel] = static_cast<uint16_t>((value >> shift) & 0x07FFU);
+      data.channels[channel] = static_cast<uint16_t>((value >> shift) & 0x07FFU);
     }
     data.ch17 = (raw_data[23] & 0x01U) != 0;
     data.ch18 = (raw_data[23] & 0x02U) != 0;
@@ -423,7 +397,7 @@ class I6X
       {
         return LibXR::ErrorCode::OUT_OF_RANGE;
       }
-      data.ch[channel] = value;
+      data.channels[channel] = value;
     }
     data.frame.valid = true;
     data.online = true;
@@ -449,7 +423,7 @@ class I6X
 
   static void ThreadI6X(I6X* i6x)
   {
-    uint8_t frame[FRAME_SIZE]{};
+    uint8_t frame[IBUS_FRAME_SIZE]{};
     const std::size_t frame_size = FrameSize(i6x->protocol_);
     std::size_t used = 0;
     auto last_frame_time = LibXR::Timebase::GetMilliseconds();
