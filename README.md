@@ -131,3 +131,17 @@ The module depends only on LibXR UART, Topic, Thread and timebase APIs. The BSP 
 使用 SBUS 时还必须处理信号反相；使用 iBus 时连接非反相 RX。不要让其他任务、驱动或调试输出同时读取同一个 UART 接收端。
 
 SBUS installations must handle signal inversion; iBus uses a non-inverted RX connection. Do not let another task, driver or debug stream read the same UART RX path.
+
+### SBUS 反相输入电路 / SBUS Inverting Input Circuit
+
+下图使用 Q1 NPN 三极管将 `RC_SBUS` 反相为 UART 使用的 `RXD`：`RXD` 通过 10 kΩ 电阻上拉到 `VCC3V3_MCU`，`RC_SBUS` 通过 1 kΩ 电阻连接到 Q1 基极，Q1 发射极接地，集电极连接到 `RXD`。
+
+The circuit below uses Q1 as an NPN inverter for the UART `RXD`: `RXD` is pulled up to `VCC3V3_MCU` through 10 kΩ, `RC_SBUS` drives the Q1 base through 1 kΩ, the emitter is connected to ground, and the collector is connected to `RXD`.
+
+```mermaid
+flowchart LR
+    VCC["VCC3V3_MCU"] --> R10["10 kΩ pull-up"] --> RXD(("RXD"))
+    RC["RC_SBUS"] --> R1["1 kΩ"] --> B["Q1 base (B)"]
+    RXD --- C["Q1 collector (C)"] --- Q1["Q1 NPN"] --- E["Q1 emitter (E)"] --- GND["GND"]
+    B --- Q1
+```
