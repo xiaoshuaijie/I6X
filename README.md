@@ -43,9 +43,9 @@ Topic `Data::normalized[]` maps channels to `-1..1`. SBUS uses `Param::calibrati
 
 ### 通道范围与功能 / Channel Ranges and Functions
 
-SBUS 通道是 11 位原始值。`ChannelCalibration` 的默认范围为 `min_value = 240`、`center_value = 1024`、`max_value = 1807`，每个通道都可以通过 `Param::calibration` 单独调整。原始值只在模块内部使用，Topic 只发布归一化结果。
+SBUS 通道是 11 位原始值。`ChannelCalibration` 的默认范围为 `SBUS_CHANNEL_MIN = 240`、`SBUS_CHANNEL_CENTER = 1024`、`SBUS_CHANNEL_MAX = 1807`，每个通道都可以通过 `Param::calibration` 单独调整。原始值只在模块内部使用，Topic 只发布归一化结果。
 
-SBUS channels are 11-bit raw values. `ChannelCalibration` defaults to `min_value = 240`, `center_value = 1024`, and `max_value = 1807`; each channel can be adjusted independently through `Param::calibration`. Raw values stay internal and only normalized results are published.
+SBUS channels are 11-bit raw values. `ChannelCalibration` defaults to `SBUS_CHANNEL_MIN = 240`, `SBUS_CHANNEL_CENTER = 1024`, and `SBUS_CHANNEL_MAX = 1807`; each channel can be adjusted independently through `Param::calibration`. Raw values stay internal and only normalized results are published.
 
 iBus 通道使用固定范围：`IBUS_CHANNEL_MIN = 1000`、`IBUS_CHANNEL_CENTER = 1500`、`IBUS_CHANNEL_MAX = 2000`。解析器拒绝超出该范围的 iBus 通道值，并使用这三个原始命名进行归一化。
 
@@ -53,7 +53,7 @@ iBus channels use a fixed range: `IBUS_CHANNEL_MIN = 1000`, `IBUS_CHANNEL_CENTER
 
 | 协议 / Protocol | 最小值 / Minimum | 中位值 / Center | 最大值 / Maximum | 配置 / Configuration |
 | --- | --- | --- | --- | --- |
-| SBUS | `min_value = 240` | `center_value = 1024` | `max_value = 1807` | 每通道可通过 `Param::calibration` 调整 / Per-channel through `Param::calibration` |
+| SBUS | `SBUS_CHANNEL_MIN = 240` | `SBUS_CHANNEL_CENTER = 1024` | `SBUS_CHANNEL_MAX = 1807` | 每通道可通过 `Param::calibration` 调整 / Per-channel through `Param::calibration` |
 | iBus | `IBUS_CHANNEL_MIN = 1000` | `IBUS_CHANNEL_CENTER = 1500` | `IBUS_CHANNEL_MAX = 2000` | 固定 / Fixed |
 
 SBUS 和 iBus 的通道功能由遥控器端自行设计和分配。模块只保留协议通道的原始顺序，不预设油门、转向、模式或舵机等功能；应用应根据遥控器配置读取 `Data::normalized[]`。

@@ -56,6 +56,15 @@ public:
   static constexpr uint8_t SBUS_STATUS_FRAME_LOST = 0x04;
   /// SBUS status flag for failsafe / SBUS 失控保护状态位
   static constexpr uint8_t SBUS_STATUS_FAILSAFE = 0x08;
+  /// SBUS 通道最小有效值
+  /// Minimum valid SBUS channel value
+  static constexpr uint16_t SBUS_CHANNEL_MIN = 240;
+  /// SBUS 通道中位值
+  /// Center SBUS channel value
+  static constexpr uint16_t SBUS_CHANNEL_CENTER = 1024;
+  /// SBUS 通道最大有效值
+  /// Maximum valid SBUS channel value
+  static constexpr uint16_t SBUS_CHANNEL_MAX = 1807;
 
   // iBus constants / iBus 常量
   /// iBus 帧字节数
@@ -100,9 +109,9 @@ public:
     uint16_t maximum; ///< 原始通道最大值
                       ///< Maximum raw channel value
 
-    constexpr ChannelCalibration(uint16_t min_value = 240,
-                                 uint16_t center_value = 1024,
-                                 uint16_t max_value = 1807)
+    constexpr ChannelCalibration(uint16_t min_value = SBUS_CHANNEL_MIN,
+                                 uint16_t center_value = SBUS_CHANNEL_CENTER,
+                                 uint16_t max_value = SBUS_CHANNEL_MAX)
         : minimum(min_value), center(center_value), maximum(max_value) {}
   };
 
