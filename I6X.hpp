@@ -129,7 +129,7 @@ public:
                                             ///< Calibrated channel values
   };
 
- private:
+private:
   /**
    * @brief 仅供协议解析使用的帧状态，不会发布到 Topic。
    *        Internal decoder state that is never published to the Topic.
@@ -147,7 +147,7 @@ public:
                                              ///< Internal normalized values
   };
 
- public:
+public:
   /**
    * @brief 模块配置；协议字段是唯一的协议切换参数。
    *        Module configuration; protocol is the single protocol selector.
@@ -292,7 +292,7 @@ public:
     return {IBUS_CHANNEL_MIN, IBUS_CHANNEL_CENTER, IBUS_CHANNEL_MAX};
   }
 
- private:
+private:
   template <typename RangeProvider>
   static void Normalize(DecodedFrame &data, std::size_t count,
                         RangeProvider range_provider) {
@@ -326,8 +326,7 @@ public:
     }
     data.frame_lost =
         (raw_data[SBUS_FRAME_SIZE - 2] & SBUS_STATUS_FRAME_LOST) != 0;
-    data.failsafe =
-        (raw_data[SBUS_FRAME_SIZE - 2] & SBUS_STATUS_FAILSAFE) != 0;
+    data.failsafe = (raw_data[SBUS_FRAME_SIZE - 2] & SBUS_STATUS_FAILSAFE) != 0;
     data.online = !data.frame_lost && !data.failsafe;
     if (data.online) {
       Normalize(data, SBUS_CHANNEL_COUNT, [&calibration](std::size_t channel) {
@@ -483,7 +482,7 @@ public:
     }
   }
 
- private:
+private:
   LibXR::UART &uart_;
   uint32_t offline_timeout_ms_;
   Calibration calibration_;
