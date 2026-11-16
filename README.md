@@ -1,101 +1,84 @@
-#I6X
+# I6X
 
 ## 1. 模块作用 / Purpose
 
-本模块从专用 UART 接收 Flysky 遥控链路，使用一个配置参数选择 SBUS 或 iBus，校验并发布统一的 `I6X::Data` Topic。Topic 只携带 16 路归一化浮点通道；协议原始值、校验和与链路状态仅在模块内部用于解析和超时处理。
+I6X 从独占的 UART 接收 Flysky 遥控器链路，支持 iBus 和 SBUS 两种协议。模块校验并解析输入帧，把通道值归一化到 `-1..1`，然后通过一个 Topic 发布 `I6X::Data`。
 
-This module receives a Flysky receiver link over a dedicated UART. One configuration parameter selects SBUS or iBus, and validated frames are published as a unified `I6X::Data` Topic containing only 16 normalized float channels. Raw protocol values, checksums and link status are kept internal for decoding and timeout handling.
+I6X reads a Flysky receiver link from a dedicated UART. It supports iBus and SBUS, validates and decodes each frame, normalizes channel values to `-1..1`, and publishes them as `I6X::Data` through one Topic.
+
+模块实例和 UART 必须在接收线程运行期间持续存在，UART RX 只能由一个消费者使用。
+
+The module instance and UART must outlive the receiver thread, and the UART RX path must have one consumer.
 
 ## 2. 协议与设备支持 / Protocol and Device Support
 
-| 协议 / Protocol | UART             | 帧 / Frame                              | 通道 / Channels |
-| --------------- | ---------------- | --------------------------------------- | --------------- |
-| SBUS            | 100000 baud, 8E2 | 25 bytes, header `0x0F`                 | 16 x 11-bit     |
-| iBus            | 115200 baud, 8N1 | 32 bytes, length `0x20`, command `0x40` | 14 x 16-bit     |
+| 协议 / Protocol | UART 格式 / UART format | 帧 / Frame | 解析通道 / Decoded channels |
+| --- | --- | --- | --- |
+| SBUS | 100000 baud, 8E2 | 25 bytes, header `0x0F` | 16 channels, 11-bit each |
+| iBus | 115200 baud, 8N1 | 32 bytes, length `0x20`, command `0x40` | 14 channels, 16-bit each |
 
-SBUS 标准信号为反相信号；BSP 必须提供反相输入或使用接收端的非反相输出。iBus 为非反相信号。SBUS 没有校验和，只检查帧头和帧尾；iBus 使用 `0xFFFF` 减去前 30 字节的校验和。
+SBUS 标准信号通常是反相的。BSP 必须提供硬件反相、启用 UART RX 反相，或使用接收机提供的非反相 SBUS 输出。iBus 使用非反相信号。
 
-Standard SBUS is inverted;
-the BSP must provide an inverter or
-    a receiver output that is already non - inverted.iBus is non -
-        inverted.SBUS has no checksum and validates only its header and footer;
-iBus uses `0xFFFF` minus the first 30 bytes as its checksum
-            .
+Standard SBUS is usually inverted. The BSP must provide an inverter, enable UART RX inversion, or use a receiver output that is already non-inverted. iBus is non-inverted.
 
-        接收机和发射机的协议能力必须按实际型号配置：
+SBUS 没有校验和，解析器检查帧头、帧尾以及丢帧/失控保护标志。iBus 使用 `0xFFFF` 减去前 30 个字节的结果作为校验和。
 
-        The protocol capability depends on the exact transmitter and receiver
-            model :
+SBUS has no checksum; the parser checks the header, footer, and frame-lost/failsafe flags. iBus uses `0xFFFF` minus the first 30 bytes as its checksum.
 
-    I6 不支持 SBUS，只支持 iBus。6 通道 I6X 支持 SBUS 和 iBus；IA6 不支持
-        SBUS、只支持 iBus；6 通道 IA6B 支持 SBUS 和 iBus；IA10B 支持 SBUS 和
-            iBus，并提供 10 个通道。
+设备的协议能力取决于具体型号和固件，请先确认接收机支持所选协议：
 
-    I6 supports iBus only.The 6 -
-        channel I6X and
-    6 - channel IA6B support both SBUS and iBus;
-IA6 supports iBus only; IA10B supports both protocols with 10 channels.
+Protocol support depends on the exact model and firmware. Confirm that the receiver supports the selected protocol:
 
-| 设备 / Device                                | SBUS        | iBus       | 通道 / Channels |
-| -------------------------------------------- | ----------- | ---------- | --------------- |
-| I6 发射机 / I6 transmitter                   | 不支持 / No | 支持 / Yes | —               |
-| 6 通道 I6X 接收机 / 6-channel I6X receiver   | 支持 / Yes  | 支持 / Yes | 6               |
-| IA6 接收机 / IA6 receiver                    | 不支持 / No | 支持 / Yes | 6               |
-| 6 通道 IA6B 接收机 / 6-channel IA6B receiver | 支持 / Yes  | 支持 / Yes | 6               |
-| IA10B 接收机 / IA10B receiver                | 支持 / Yes  | 支持 / Yes | 10              |
+| 设备 / Device | SBUS | iBus | 通道 / Channels |
+| --- | --- | --- | --- |
+| I6 发射机 / I6 transmitter | 不支持 / No | 支持 / Yes | — |
+| 6 通道 I6X 接收机 / 6-channel I6X receiver | 支持 / Yes | 支持 / Yes | 6 |
+| IA6 接收机 / IA6 receiver | 不支持 / No | 支持 / Yes | 6 |
+| 6 通道 IA6B 接收机 / 6-channel IA6B receiver | 支持 / Yes | 支持 / Yes | 6 |
+| IA10B 接收机 / IA10B receiver | 支持 / Yes | 支持 / Yes | 10 |
 
-模块为协议帧解析各自协议的最大通道数；SBUS 解析 16 路，iBus 解析前 14 路。6 或 10 通道接收机按设备型号使用前 N 路，Topic 中未使用的归一化通道元素为零。
+模块按协议最大通道数解析：SBUS 解析 16 路，iBus 解析前 14 路。接收机实际通道数不足时，未使用的 `Data::normalized[]` 元素保持为零。
 
-The decoder handles the protocol maximum channel count: 16 channels for SBUS and the first 14 channels for iBus. A 6-channel or 10-channel receiver uses the first N channels for its model;
-unused normalized Topic elements remain zero.
+The parser handles the protocol maximum: 16 SBUS channels and the first 14 iBus channels. Unused `Data::normalized[]` elements remain zero when a receiver has fewer channels.
 
 ### 接收机串行总线输出设置 / Receiver Serial-Bus Output Setup
 
-使用 iBus 或 SBUS 前，需要先在 i6 或 i6x 遥控器中选择与模块参数一致的串行总线输出：
+使用 iBus 或 SBUS 前，需要在 i6 或 i6x 遥控器中选择与 `I6X::Param::protocol` 一致的输出协议：
+
+Before using iBus or SBUS, select the output protocol that matches `I6X::Param::protocol` on the i6 or i6x transmitter:
 
 1. 长按 `OK` 进入系统菜单。
-2. 找到并进入“接收机设置”。
+2. 进入“接收机设置”。
 3. 进入“输出模式”。
-4. 在“串行总线”中选择 `IBUS` 或 `SBUS`。选择的协议必须与 `I6X::Param::protocol` 相同。
+4. 在“串行总线”中选择 `IBUS` 或 `SBUS`。
 5. 长按 `CANCEL` 保存设置并退出菜单。
-
-Before using iBus or SBUS, select the matching serial-bus output on the i6 or i6x transmitter:
 
 1. Press and hold `OK` to enter the system menu.
 2. Open the receiver settings.
 3. Open the output-mode settings.
-4. Select `IBUS` or `SBUS` under the serial-bus option. The selection must match `I6X::Param::protocol`.
+4. Select `IBUS` or `SBUS` under the serial-bus option.
 5. Press and hold `CANCEL` to save the setting and leave the menu.
 
-    Topic 的 `Data::normalized[]` 使用 `-
-    1..1` 表示通道值。SBUS 使用 `Param::calibration` 归一化；iBus 使用 1000 /
-        1500 /
-        2000 的固定最小值、中位值和最大值归一化。
+## 3. 通道值与校准 / Channel Values and Calibration
 
-        Topic `Data::normalized[]` maps channels to `-
-    1..1`.SBUS uses `Param::calibration`;
-iBus uses fixed 1000 / 1500 / 2000 minimum, center and maximum values.
+`I6X::Data::normalized[]` 中的每个元素范围为 `-1..1`。Topic 只发布归一化值，原始帧、校验和和链路状态保存在模块内部。
 
-### 通道范围与功能 / Channel Ranges and Functions
+Each element of `I6X::Data::normalized[]` is in the range `-1..1`. The Topic publishes normalized values only; raw frames, checksums, and link state remain internal to the module.
 
-SBUS 通道是 11 位原始值。`ChannelCalibration` 的默认范围为 `SBUS_CHANNEL_MIN = 240`、`SBUS_CHANNEL_CENTER = 1024`、`SBUS_CHANNEL_MAX = 1807`，每个通道都可以通过 `Param::calibration` 单独调整。原始值只在模块内部使用，Topic 只发布归一化结果。
+SBUS 默认使用以下校准范围，每个通道都可以通过 `Param::calibration` 单独调整：
 
-SBUS channels are 11-bit raw values. `ChannelCalibration` defaults to `SBUS_CHANNEL_MIN = 240`, `SBUS_CHANNEL_CENTER = 1024`, and `SBUS_CHANNEL_MAX = 1807`; each channel can be adjusted independently through `Param::calibration`. Raw values stay internal and only normalized results are published.
+SBUS uses the following default calibration ranges. Each channel can be adjusted independently through `Param::calibration`:
 
-iBus 通道使用固定范围：`IBUS_CHANNEL_MIN = 1000`、`IBUS_CHANNEL_CENTER = 1500`、`IBUS_CHANNEL_MAX = 2000`。解析器拒绝超出该范围的 iBus 通道值，并使用这三个原始命名进行归一化。
+| 协议 / Protocol | 最小值 / Minimum | 中位值 / Center | 最大值 / Maximum | 配置 / Configuration |
+| --- | ---: | ---: | ---: | --- |
+| SBUS | `SBUS_CHANNEL_MIN = 240` | `SBUS_CHANNEL_CENTER = 1024` | `SBUS_CHANNEL_MAX = 1807` | 每通道可调 / Per-channel |
+| iBus | `IBUS_CHANNEL_MIN = 1000` | `IBUS_CHANNEL_CENTER = 1500` | `IBUS_CHANNEL_MAX = 2000` | 固定 / Fixed |
 
-iBus channels use a fixed range: `IBUS_CHANNEL_MIN = 1000`, `IBUS_CHANNEL_CENTER = 1500`, and `IBUS_CHANNEL_MAX = 2000`. The decoder rejects iBus channel values outside this range and uses these original names for normalization.
+SBUS 通道值按各通道的最小值、中位值和最大值归一化。iBus 固定使用 `1000 / 1500 / 2000` 进行归一化。
 
-| 协议 / Protocol | 最小值 / Minimum          | 中位值 / Center              | 最大值 / Maximum          | 配置 / Configuration                                                              |
-| --------------- | ------------------------- | ---------------------------- | ------------------------- | --------------------------------------------------------------------------------- |
-| SBUS            | `SBUS_CHANNEL_MIN = 240`  | `SBUS_CHANNEL_CENTER = 1024` | `SBUS_CHANNEL_MAX = 1807` | 每通道可通过 `Param::calibration` 调整 / Per-channel through `Param::calibration` |
-| iBus            | `IBUS_CHANNEL_MIN = 1000` | `IBUS_CHANNEL_CENTER = 1500` | `IBUS_CHANNEL_MAX = 2000` | 固定 / Fixed                                                                      |
+SBUS channels use each channel's minimum, center, and maximum calibration values. iBus always uses `1000 / 1500 / 2000`.
 
-SBUS 和 iBus 的通道功能由遥控器端自行设计和分配。模块只保留协议通道的原始顺序，不预设油门、转向、模式或舵机等功能；应用应根据遥控器配置读取 `Data::normalized[]`。
-
-The functions of SBUS and iBus channels are designed and assigned by the transmitter. The module keeps the original protocol order and does not assign predefined meanings such as throttle, steering, mode or servo. Applications should read `Data::normalized[]` according to the transmitter configuration.
-
-## 3. 构造接口 / Constructor
+## 4. 构造接口 / Constructor
 
 ```cpp
 I6X(LibXR::UART& uart,
@@ -107,100 +90,87 @@ I6X(LibXR::UART& uart,
                                .protocol = I6X::Protocol::SBUS});
 ```
 
-`uart` 是必选依赖，且只能由一个接收消费者拥有。`param
-    .protocol` 是协议切换参数，默认使用 `I6X::Protocol::SBUS`：SBUS
-        配置 100000 8E2，`I6X::Protocol::
-            IBUS` 配置 115200 8N1。`topic_name` 必须非空且每个实例唯一；超时和线程栈大小必须大于零。
+构造函数会：
 
-`uart` is a required dependency and its RX path must have one consumer. `param
-    .protocol` selects the protocol and defaults to `I6X::Protocol::SBUS`
-    : SBUS configures 100000 8E2,
-    while `I6X::Protocol::IBUS` configures 115200 8N1. `topic_name` must
-        be nonempty and unique per instance;
-timeout and stack size must be positive.
+- 创建 `param.topic_name` 指定的 Topic。
+- 按协议配置 UART：SBUS 为 `100000, 8E2`，iBus 为 `115200, 8N1`。
+- 创建 UART 接收线程。
 
-    帧解析也可脱离硬件调用：
+The constructor:
 
-    The decoder can also be called without hardware :
+- Creates the Topic named by `param.topic_name`.
+- Configures the UART as `100000, 8E2` for SBUS or `115200, 8N1` for iBus.
+- Creates the UART receiver thread.
 
-```cpp I6X::Data data{};
-auto result = I6X::ParseFrame(frame, data, I6X::Protocol::SBUS, sizeof(frame));
-```
+`topic_name` 必须非空且每个实例唯一；`offline_timeout_ms` 和 `task_stack_depth_uart` 必须大于零；传入的校准范围必须满足 `minimum < center < maximum <= 2047`。
 
-`ParseFrame` 的协议参数位于第三个位置，省略时默认按 SBUS 解析；需要解析 iBus 时显式传入 `I6X::Protocol::IBUS`。`size` 为零时使用协议默认帧长。
+`topic_name` must be non-empty and unique per instance. `offline_timeout_ms` and `task_stack_depth_uart` must be greater than zero. Each calibration range must satisfy `minimum < center < maximum <= 2047`.
 
-The protocol argument is the third parameter and defaults to SBUS. Pass `I6X::Protocol::IBUS` explicitly for iBus frames. A zero `size` selects the protocol's default frame length.
+## 5. 脱离硬件解析帧 / Parsing a Frame Without Hardware
 
-解析失败时输出保持不变。SBUS 故障帧仍返回 `OK`，但输出的 `Data::normalized[]` 全为零；iBus 校验失败或通道超范围时返回 `CHECK_ERR` 或 `OUT_OF_RANGE`。成功解析时输出只包含归一化通道值。
+`ParseFrame` 的第三个参数选择协议，省略时默认使用 SBUS；`size == 0` 时使用协议默认帧长。
 
-The output is unchanged on a decode failure. An SBUS failsafe or lost-frame packet returns `OK` with all `Data::normalized[]` elements set to zero;
-an iBus checksum or
-    range failure
-        returns `CHECK_ERR` or `OUT_OF_RANGE`
-                                       .Successful decoding exposes only
-                                           normalized channel values.
-
-                                   ##4. Topic
-
-                                   | 名称 / Name | 方向 / Direction |
-                                   类型 / Type | 用途 / Meaning | |
-                                   -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --|
-                                   -- -- -- -- -- -- -- --| -- -- -- -- -- -|
-                                   -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --|
-                                   | `param.topic_name`（默认 /
-                                         default `i6x`） |
-                                   发布 / Publish | `I6X::
-                                       Data` | `normalized[16]`，范围 `-
-                                                   1..1` / `normalized[16]`,
-    range `- 1..1` |
-
-        消费者直接读取 `data
-                .normalized
-                    []`；失联超时每次只发布一次全零消息，恢复后继续发布。回调运行在
-                        UART 接收线程中，应及时返回。
-
-            Consumers read `data.normalized[]` directly.One zero -
-            initialized message is published per timeout period,
-    and publication resumes after a valid frame
-            .Callbacks run in the UART RX thread and should return promptly.
-
-        ##5. 配置示例 /
-        Configuration Example
-
-            I6X 是可直接放入 BSP 的Module。下面的实例选择 SBUS；切换到 iBus
-                时只需把 `protocol` 改为 `I6X::Protocol::IBUS`。
-
-        I6X can be included as a Module in a BSP.This instance selects SBUS;
-switch
-  to iBus by changing only `protocol` to `I6X::Protocol::IBUS`.
+The third `ParseFrame` argument selects the protocol. It defaults to SBUS, and `size == 0` selects the protocol's default frame length.
 
 ```cpp
 #include "I6X.hpp"
 
-      static I6X i6x_0(uart5,
-                       {.topic_name = "i6x",
-                        .offline_timeout_ms = 20,
-                        .task_stack_depth_uart = 2048,
-                        .thread_priority_uart = LibXR::Thread::Priority::HIGH,
-                        .calibration = I6X::Calibration{},
-                        .protocol = I6X::Protocol::SBUS});
+I6X::Data data{};
+auto result = I6X::ParseFrame(frame, data, I6X::Protocol::SBUS,
+                              sizeof(frame));
 ```
 
-    ##6. 依赖与硬件 /
-    Dependencies and Hardware
+解析失败时，`output_data` 保持调用前的内容不变。SBUS 丢帧或失控保护帧返回 `OK`，但归一化输出全为零。iBus 校验失败返回 `CHECK_ERR`，通道值超出 `1000..2000` 返回 `OUT_OF_RANGE`。
 
-        模块只依赖 LibXR 的 UART、Topic、Thread 和时间基准，不依赖其他 XRobot
-            Module。BSP 必须先初始化
-                LibXR，注册匹配协议 UART，并保证接收队列至少能容纳 32 字节。
+On a parse failure, `output_data` remains unchanged. An SBUS frame-lost or failsafe frame returns `OK` with all normalized outputs set to zero. An iBus checksum failure returns `CHECK_ERR`; an iBus channel outside `1000..2000` returns `OUT_OF_RANGE`.
 
-    The module depends only on LibXR UART,
-    Topic, Thread and timebase APIs.The BSP must initialize LibXR first,
-    register a UART matching the selected protocol,
-    and provide an RX queue that can hold at least 32 bytes.
+## 6. Topic 数据 / Topic Data
 
-        使用 SBUS 时还必须处理信号反相；使用 iBus 时连接非反相
-            RX。不要让其他任务、驱动或调试输出同时读取同一个 UART 接收端。
+| 名称 / Name | 方向 / Direction | 类型 / Type | 内容 / Contents |
+| --- | --- | --- | --- |
+| `param.topic_name`，默认 `i6x` | 发布 / Publish | `I6X::Data` | `normalized[16]`, range `-1..1` |
 
-        SBUS installations must handle signal inversion;
-iBus uses a non - inverted RX connection.Do not let another task,
-    driver or debug stream read the same UART RX path.
+当有效帧在 `offline_timeout_ms` 内没有到达时，模块发布一次全零的离线数据。收到有效帧后恢复正常发布。
+
+When no valid frame arrives within `offline_timeout_ms`, the module publishes one all-zero offline message. Publishing resumes after a valid frame is received.
+
+Topic 回调运行在 UART 接收线程中，应尽快返回。模块不预设油门、转向、模式或舵机等通道功能，应用应根据遥控器配置解释通道顺序。
+
+Topic callbacks run in the UART receiver thread and should return quickly. The module does not assign meanings such as throttle, steering, mode, or servo to channels; applications should interpret channel order according to the transmitter configuration.
+
+## 7. 配置示例 / Configuration Example
+
+```cpp
+#include "I6X.hpp"
+
+static I6X i6x_0(
+    uart5,
+    {.topic_name = "i6x",
+     .offline_timeout_ms = 20,
+     .task_stack_depth_uart = 2048,
+     .thread_priority_uart = LibXR::Thread::Priority::HIGH,
+     .calibration = I6X::Calibration{},
+     .protocol = I6X::Protocol::SBUS});
+```
+
+切换到 iBus 时，将 `protocol` 改为 `I6X::Protocol::IBUS`，并确保遥控器输出模式、UART 接线和 UART 参数同步切换。
+
+To use iBus, change `protocol` to `I6X::Protocol::IBUS` and change the transmitter output mode, wiring, and UART configuration accordingly.
+
+## 8. BSP 与硬件要求 / BSP and Hardware Requirements
+
+- BSP 必须先初始化 LibXR 的时间基准、线程和 UART。
+- UART RX 必须独占，接收队列至少能够容纳 32 字节。
+- DMA 接收缓冲区必须位于 DMA 可访问的内存，并满足 BSP 的缓存维护和对齐要求。
+- 使用 SBUS 时必须处理信号反相；使用 iBus 时连接非反相 RX。
+- 检查接收机供电、UART RX/TX 方向、公共地线和目标 UART 引脚复用配置。
+
+- The BSP must initialize the LibXR timebase, threading, and UART first.
+- UART RX must be exclusive, and the receive queue must hold at least 32 bytes.
+- DMA receive buffers must be in DMA-accessible memory and meet the BSP's cache-maintenance and alignment requirements.
+- Handle SBUS inversion; connect iBus to a non-inverted RX input.
+- Check receiver power, UART RX/TX direction, common ground, and the target UART pin-multiplexing configuration.
+
+如果没有数据，请依次检查：遥控器是否已选择正确的串行总线协议、接收机型号是否支持该协议、UART 参数是否匹配、SBUS 是否反相、RX 是否被其他任务占用，以及 DMA 缓冲区地址是否可被 DMA 访问。
+
+If no data is received, check in this order: transmitter serial-bus selection, receiver protocol support, matching UART parameters, SBUS inversion, exclusive RX ownership, and DMA-buffer placement.
