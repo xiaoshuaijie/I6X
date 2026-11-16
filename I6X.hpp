@@ -129,10 +129,9 @@ public:
                                             ///< Calibrated channel values
   };
 
-private:
   /**
-   * @brief 仅供协议解析使用的帧状态，不会发布到 Topic。
-   *        Internal decoder state that is never published to the Topic.
+   * @brief 协议解析后的完整帧状态；Topic 仍只发布 Data。
+   *        Complete decoded frame state; the Topic still publishes Data only.
    */
   struct DecodedFrame {
     uint16_t channels[SBUS_CHANNEL_COUNT]{}; ///< 原始通道值
@@ -147,7 +146,6 @@ private:
                                              ///< Internal normalized values
   };
 
-public:
   /**
    * @brief 模块配置；协议字段是唯一的协议切换参数。
    *        Module configuration; protocol is the single protocol selector.
@@ -224,47 +222,6 @@ public:
                               calibration, decoded);
   }
 
-private:
-  static LibXR::ErrorCode
-  ParseFrameInternal(const uint8_t *raw_data, Data &output_data,
-                     Protocol protocol, std::size_t size,
-                     const Calibration &calibration,
-                     DecodedFrame &decoded_output) {
-    const std::size_t expected_size = FrameSize(protocol);
-    if (raw_data == nullptr) {
-      return LibXR::ErrorCode::PTR_NULL;
-    }
-    if (size == 0) {
-      size = expected_size;
-    }
-    if (size != expected_size) {
-      return LibXR::ErrorCode::SIZE_ERR;
-    }
-    DecodedFrame decoded{};
-    LibXR::ErrorCode result = LibXR::ErrorCode::ARG_ERR;
-    if (protocol == Protocol::SBUS) {
-      if (!ValidCalibration(calibration)) {
-        return LibXR::ErrorCode::ARG_ERR;
-      }
-      result = ParseSbusFrame(raw_data, decoded, calibration);
-    } else if (protocol == Protocol::IBUS) {
-      result = ParseIbusFrame(raw_data, decoded);
-    }
-    if (result != LibXR::ErrorCode::OK) {
-      return result;
-    }
-
-    decoded_output = decoded;
-    Data normalized{};
-    if (decoded.online) {
-      std::copy(std::begin(decoded.normalized), std::end(decoded.normalized),
-                std::begin(normalized.normalized));
-    }
-    output_data = normalized;
-    return LibXR::ErrorCode::OK;
-  }
-
-public:
   static constexpr std::size_t FrameSize(Protocol protocol) {
     return protocol == Protocol::SBUS ? SBUS_FRAME_SIZE : IBUS_FRAME_SIZE;
   }
@@ -306,6 +263,45 @@ public:
   }
 
 private:
+  static LibXR::ErrorCode
+  ParseFrameInternal(const uint8_t *raw_data, Data &output_data,
+                     Protocol protocol, std::size_t size,
+                     const Calibration &calibration,
+                     DecodedFrame &decoded_output) {
+    const std::size_t expected_size = FrameSize(protocol);
+    if (raw_data == nullptr) {
+      return LibXR::ErrorCode::PTR_NULL;
+    }
+    if (size == 0) {
+      size = expected_size;
+    }
+    if (size != expected_size) {
+      return LibXR::ErrorCode::SIZE_ERR;
+    }
+    DecodedFrame decoded{};
+    LibXR::ErrorCode result = LibXR::ErrorCode::ARG_ERR;
+    if (protocol == Protocol::SBUS) {
+      if (!ValidCalibration(calibration)) {
+        return LibXR::ErrorCode::ARG_ERR;
+      }
+      result = ParseSbusFrame(raw_data, decoded, calibration);
+    } else if (protocol == Protocol::IBUS) {
+      result = ParseIbusFrame(raw_data, decoded);
+    }
+    if (result != LibXR::ErrorCode::OK) {
+      return result;
+    }
+
+    decoded_output = decoded;
+    Data normalized{};
+    if (decoded.online) {
+      std::copy(std::begin(decoded.normalized), std::end(decoded.normalized),
+                std::begin(normalized.normalized));
+    }
+    output_data = normalized;
+    return LibXR::ErrorCode::OK;
+  }
+
   template <typename RangeProvider>
   static void Normalize(DecodedFrame &data, std::size_t count,
                         RangeProvider range_provider) {
