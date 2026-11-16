@@ -219,6 +219,17 @@ public:
   ParseFrame(const uint8_t *raw_data, Data &output_data,
              Protocol protocol = Protocol::SBUS, std::size_t size = 0,
              const Calibration &calibration = Calibration{}) {
+    DecodedFrame decoded{};
+    return ParseFrameInternal(raw_data, output_data, protocol, size,
+                              calibration, decoded);
+  }
+
+private:
+  static LibXR::ErrorCode
+  ParseFrameInternal(const uint8_t *raw_data, Data &output_data,
+                     Protocol protocol, std::size_t size,
+                     const Calibration &calibration,
+                     DecodedFrame &decoded_output) {
     const std::size_t expected_size = FrameSize(protocol);
     if (raw_data == nullptr) {
       return LibXR::ErrorCode::PTR_NULL;
@@ -243,6 +254,7 @@ public:
       return result;
     }
 
+    decoded_output = decoded;
     Data normalized{};
     if (decoded.online) {
       std::copy(std::begin(decoded.normalized), std::end(decoded.normalized),
@@ -252,6 +264,7 @@ public:
     return LibXR::ErrorCode::OK;
   }
 
+public:
   static constexpr std::size_t FrameSize(Protocol protocol) {
     return protocol == Protocol::SBUS ? SBUS_FRAME_SIZE : IBUS_FRAME_SIZE;
   }
@@ -378,10 +391,13 @@ private:
                decltype(LibXR::Timebase::GetMilliseconds()) &last_frame_time,
                bool &timeout_published) {
     Data data{};
-    if (ParseFrame(frame, data, i6x->protocol_, frame_size,
-                   i6x->calibration_) == LibXR::ErrorCode::OK) {
+    DecodedFrame decoded{};
+    if (ParseFrameInternal(frame, data, i6x->protocol_, frame_size,
+                           i6x->calibration_, decoded) ==
+        LibXR::ErrorCode::OK) {
       last_frame_time = LibXR::Timebase::GetMilliseconds();
       timeout_published = false;
+      i6x->last_data_ = decoded;
       i6x->topic_.Publish(data);
       used = 0;
     }
@@ -491,4 +507,6 @@ private:
   LibXR::Semaphore sem_;
   LibXR::ReadOperation op_;
   LibXR::Thread thread_uart_;
+
+  DecodedFrame last_data_{};  ///< 上一帧解析数据 / Previous decoded frame
 };
