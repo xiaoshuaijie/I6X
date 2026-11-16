@@ -49,6 +49,24 @@ IA6 supports iBus only; IA10B supports both protocols with 10 channels.
 The decoder handles the protocol maximum channel count: 16 channels for SBUS and the first 14 channels for iBus. A 6-channel or 10-channel receiver uses the first N channels for its model;
 unused normalized Topic elements remain zero.
 
+### 接收机串行总线输出设置 / Receiver Serial-Bus Output Setup
+
+使用 iBus 或 SBUS 前，需要先在 i6 或 i6x 遥控器中选择与模块参数一致的串行总线输出：
+
+1. 长按 `OK` 进入系统菜单。
+2. 找到并进入“接收机设置”。
+3. 进入“输出模式”。
+4. 在“串行总线”中选择 `IBUS` 或 `SBUS`。选择的协议必须与 `I6X::Param::protocol` 相同。
+5. 长按 `CANCEL` 保存设置并退出菜单。
+
+Before using iBus or SBUS, select the matching serial-bus output on the i6 or i6x transmitter:
+
+1. Press and hold `OK` to enter the system menu.
+2. Open the receiver settings.
+3. Open the output-mode settings.
+4. Select `IBUS` or `SBUS` under the serial-bus option. The selection must match `I6X::Param::protocol`.
+5. Press and hold `CANCEL` to save the setting and leave the menu.
+
     Topic 的 `Data::normalized[]` 使用 `-
     1..1` 表示通道值。SBUS 使用 `Param::calibration` 归一化；iBus 使用 1000 /
         1500 /
